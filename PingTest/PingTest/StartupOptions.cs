@@ -36,6 +36,10 @@ namespace PingTracer
 		/// If true, the StartupHostName argument will prefer to match a stored configuration that is configured with the Trace Route option checked.
 		/// </summary>
 		public BoolOverride TraceRoute = BoolOverride.Inherit;
+		/// <summary>
+		/// Accumulated list of hosts from all -h arguments (after comma-splitting).
+		/// </summary>
+		public List<string> StartupHosts = new List<string>();
 
 		/// <summary>
 		/// Constructs an empty StartupOptions.
@@ -55,7 +59,21 @@ namespace PingTracer
 				string arg = args[i];
 				if (key != null)
 				{
-					flags[key] = arg;
+					if (key == "-h")
+					{
+						// Accumulate -h values, splitting on commas
+						string[] splitHosts = arg.Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+						foreach (string h in splitHosts)
+						{
+							string trimmed = h.Trim();
+							if (!string.IsNullOrWhiteSpace(trimmed))
+								StartupHosts.Add(trimmed);
+						}
+					}
+					else
+					{
+						flags[key] = arg;
+					}
 					key = null;
 				}
 				else if (flagKeysWithNoValue.Contains(arg))
@@ -63,8 +81,12 @@ namespace PingTracer
 				else
 					key = arg;
 			}
-			if (flags.TryGetValue("-h", out string startupHostName))
-				this.StartupHostName = startupHostName;
+
+			// Backward compat: set StartupHostName to comma-joined hosts
+			// MainForm_Load uses StartupHostName to find/set host in txtHost.Text
+			if (StartupHosts.Count > 0)
+				this.StartupHostName = string.Join(",", StartupHosts);
+
 			if (flags.TryGetValue("-l", out string startupLocation))
 			{
 				try
