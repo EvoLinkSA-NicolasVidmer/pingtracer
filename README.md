@@ -19,9 +19,20 @@ Notes about PingTracer's "Trace Route" implementation:
 * You can increase the ping rate as high as 10 pings per second (per host!) which can add up to dozens or even hundreds of pings per second.  Please use responsibly.
 * Some routers implement [ICMP rate limiting](https://docs.paloaltonetworks.com/pan-os/10-0/pan-os-admin/networking/session-settings-and-timeouts/icmp/icmpv6-rate-limiting.html) in such a way that penalizes rapid pinging.  Therefore, with higher ping rates you may see increased packet loss which is not representative of actual network performance.
 
+## Version 1.20 (Fork Changes)
+
+This fork adds multi-host monitoring support:
+
+* **Multiple hosts** -- Monitor several destinations simultaneously, each in its own tab.
+* **Overview dashboard** -- A summary tab showing all monitored hosts with sparkline graphs, packet loss, and average latency at a glance.
+* **Per-host settings** -- Each host retains its own ping rate, thresholds, and traceroute preferences.
+* **Session persistence** -- Your last monitored hosts are restored on restart.
+* **Multi-host CLI** -- Use `-h` multiple times to launch with several hosts (e.g. `-h 8.8.8.8 -h 1.1.1.1`).
+* **Retargeted to .NET Framework 4.7.2.**
+
 ## Installation
 
-Just download the latest release from [the releases tab](https://github.com/bp2008/pingtracer/releases) and extract it wherever you like.
+Just download the latest release from [the releases tab](https://github.com/EvoLinkSA-NicolasVidmer/pingtracer/releases) and extract it wherever you like.
 
 ## Keyboard shortcuts for the graphs
 Key | Alternate Key | action
@@ -60,4 +71,4 @@ See the latest command line arguments in-app with a usage example via Ping Trace
 
 ## Building from source
 
-PingTracer (as of version 1.17) is a relatively simple C# and Windows Forms app with no third-party dependencies except .NET Framework 4.6.2.  You should have no trouble building it in a standard installation of Visual Studio Community Edition.
+PingTracer (as of version 1.20) is a relatively simple C# and Windows Forms app with no third-party dependencies except .NET Framework 4.7.2.  You should have no trouble building it in a standard installation of Visual Studio Community Edition.
