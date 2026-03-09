@@ -16,6 +16,7 @@ namespace PingTracer
 	{
 		#region Fields and Properties
 		private Settings settings = new Settings();
+		private static readonly short[] EmptyShortArray = new short[0];
 
 		public static Brush brushSuccess = new SolidBrush(Color.FromArgb(64, 128, 64));
 		public static Pen penSuccess = new Pen(brushSuccess, 1);
@@ -204,6 +205,30 @@ namespace PingTracer
 			pings = new PingLog[pings.Length];
 			Interlocked.Exchange(ref _nextIndexOffset, -1);
 			this.Invalidate();
+		}
+
+		/// <summary>
+		/// Returns the most recent ping times from the circular buffer.
+		/// Positive values = successful ping time in ms, -1 = failure/timeout, 0 = no data.
+		/// </summary>
+		/// <param name="count">Number of recent pings to retrieve.</param>
+		public short[] GetRecentPingTimes(int count)
+		{
+			long currentOffset = Interlocked.Read(ref _nextIndexOffset);
+			if (currentOffset < 0) return EmptyShortArray;
+			int available = (int)Math.Min(currentOffset + 1, pings.Length);
+			int toRead = Math.Min(count, available);
+			short[] result = new short[toRead];
+			for (int i = 0; i < toRead; i++)
+			{
+				long idx = currentOffset - (toRead - 1 - i);
+				if (idx < 0) continue;
+				PingLog p = pings[idx % pings.Length];
+				if (p == null) result[i] = 0;
+				else if (p.result != IPStatus.Success) result[i] = -1;
+				else result[i] = p.pingTime;
+			}
+			return result;
 		}
 
 		int timestampsHeight = 13;

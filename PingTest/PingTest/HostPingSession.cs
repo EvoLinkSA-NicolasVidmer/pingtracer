@@ -222,6 +222,19 @@ namespace PingTracer
 		}
 
 		/// <summary>
+		/// Returns recent ping times from the destination (last hop) graph.
+		/// Delegates to PingGraphControl.GetRecentPingTimes on the last graph in the sorted list.
+		/// </summary>
+		/// <param name="count">Number of recent pings to retrieve.</param>
+		public short[] GetRecentPingTimes(int count)
+		{
+			if (PingGraphs.Count == 0)
+				return new short[0];
+			PingGraphControl destGraph = PingGraphs.Values[PingGraphs.Count - 1];
+			return destGraph.GetRecentPingTimes(count);
+		}
+
+		/// <summary>
 		/// Increments the successful ping counter (thread-safe).
 		/// </summary>
 		public void IncrementSuccessful()

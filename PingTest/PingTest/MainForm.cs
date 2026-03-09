@@ -26,9 +26,9 @@ namespace PingTracer
 		private const string fileNameFriendlyDateFormatString = "yyyy'-'MM'-'dd HH'-'mm'-'ss";
 
 		/// <summary>
-		/// TabControl that holds one tab per host session.
+		/// TabControl that holds one tab per host session, with close buttons and drag-reorder.
 		/// </summary>
-		private TabControl tabControlHosts;
+		private DraggableTabControl tabControlHosts;
 
 		/// <summary>
 		/// Active ping sessions, one per host.
@@ -124,11 +124,13 @@ namespace PingTracer
 
 			InitializeComponent();
 
-			// Create TabControl programmatically, replacing panel_Graphs in splitContainer1.Panel2
-			tabControlHosts = new TabControl();
+			// Create DraggableTabControl programmatically, replacing panel_Graphs in splitContainer1.Panel2
+			tabControlHosts = new DraggableTabControl();
 			tabControlHosts.Dock = DockStyle.Fill;
 			tabControlHosts.ShowToolTips = true;
 			tabControlHosts.SelectedIndexChanged += tabControlHosts_SelectedIndexChanged;
+			tabControlHosts.TabCloseRequested += TabControl_TabCloseRequested;
+			tabControlHosts.TabsReordered += TabControl_TabsReordered;
 			splitContainer1.Panel2.Controls.Remove(panel_Graphs);
 			splitContainer1.Panel2.Controls.Add(tabControlHosts);
 
@@ -577,9 +579,9 @@ namespace PingTracer
 		/// </summary>
 		private HostPingSession GetActiveSession()
 		{
-			if (tabControlHosts == null || tabControlHosts.SelectedIndex < 0 || tabControlHosts.SelectedIndex >= activeSessions.Count)
+			if (tabControlHosts == null || tabControlHosts.SelectedIndex < 1 || (tabControlHosts.SelectedIndex - 1) >= activeSessions.Count)
 				return null;
-			return activeSessions[tabControlHosts.SelectedIndex];
+			return activeSessions[tabControlHosts.SelectedIndex - 1];
 		}
 		private void AddEventHandlers(PingGraphControl graph)
 		{
@@ -639,9 +641,50 @@ namespace PingTracer
 		{
 			var session = GetActiveSession();
 			if (session != null)
-			{
 				UpdatePingCounts(session.GetSuccessfulPings(), session.GetFailedPings());
+			else
+				UpdatePingCounts(0, 0);
+		}
+
+		private void TabControl_TabCloseRequested(object sender, int tabIndex)
+		{
+			if (tabIndex < 1 || tabIndex > activeSessions.Count) return;
+			int sessionIndex = tabIndex - 1;
+			HostPingSession session = activeSessions[sessionIndex];
+
+			if (session.Worker != null && session.Worker.IsBusy)
+				session.Worker.CancelAsync();
+
+			activeSessions.RemoveAt(sessionIndex);
+			tabControlHosts.TabPages.RemoveAt(tabIndex);
+			session.Dispose();
+
+			// If all host tabs closed while running, auto-stop
+			if (activeSessions.Count == 0 && isRunning)
+			{
+				btnStart_Click(btnStart, new EventArgs());
+				return;
 			}
+
+			var active = GetActiveSession();
+			if (active != null)
+				UpdatePingCounts(active.GetSuccessfulPings(), active.GetFailedPings());
+			else
+				UpdatePingCounts(0, 0);
+		}
+
+		private void TabControl_TabsReordered(object sender, EventArgs e)
+		{
+			// Rebuild activeSessions order to match TabPages order (skip index 0 = Overview)
+			var reordered = new List<HostPingSession>();
+			for (int i = 1; i < tabControlHosts.TabPages.Count; i++)
+			{
+				TabPage tp = tabControlHosts.TabPages[i];
+				HostPingSession match = activeSessions.FirstOrDefault(s => s.TabPage == tp);
+				if (match != null)
+					reordered.Add(match);
+			}
+			activeSessions = reordered;
 		}
 
 		private void MainForm_FormClosing(object sender, FormClosingEventArgs e)
@@ -756,6 +799,10 @@ namespace PingTracer
 					oldSession.Dispose();
 				activeSessions.Clear();
 				tabControlHosts.TabPages.Clear();
+
+				// Insert Overview tab at index 0 (always present, not closeable)
+				TabPage overviewTab = new TabPage("Overview");
+				tabControlHosts.TabPages.Add(overviewTab);
 
 				isRunning = true;
 				btnStart.Text = "Click to Stop";
