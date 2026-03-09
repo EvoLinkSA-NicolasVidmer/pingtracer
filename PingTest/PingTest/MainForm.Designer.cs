@@ -116,20 +116,20 @@ namespace PingTracer
 			this.txtHost.Size = new System.Drawing.Size(184, 20);
 			this.txtHost.TabIndex = 1;
 			this.toolTip1.SetToolTip(this.txtHost, "Enter the IP address or host name of the destination you wish to monitor.\r\n\r\nYou " +
-        "may click the blue Host label to choose a previously entered value.");
+        "may click the blue Hosts label to choose a previously entered value.");
 			this.txtHost.TextChanged += new System.EventHandler(this.txtHost_TextChanged);
-			// 
+			//
 			// lblHost
-			// 
+			//
 			this.lblHost.AutoSize = true;
 			this.lblHost.ForeColor = System.Drawing.Color.Blue;
 			this.lblHost.Location = new System.Drawing.Point(12, 9);
 			this.lblHost.Name = "lblHost";
 			this.lblHost.Size = new System.Drawing.Size(32, 13);
 			this.lblHost.TabIndex = 2;
-			this.lblHost.Text = "Host:";
+			this.lblHost.Text = "Hosts:";
 			this.toolTip1.SetToolTip(this.lblHost, "Enter the IP address or host name of the destination you wish to monitor.\r\n\r\nYou " +
-        "may click the blue Host label to choose a previously entered value.");
+        "may click the blue Hosts label to choose a previously entered value.");
 			this.lblHost.Click += new System.EventHandler(this.lblHost_Click);
 			// 
 			// label2
