@@ -1408,6 +1408,28 @@ namespace PingTracer
 			}
 		}
 
+		private HostSettings FindHostSettings(string host)
+		{
+			lock (settings.hostHistory)
+			{
+				// Match by host string and current IPv4 preference
+				HostSettings match = settings.hostHistory.FirstOrDefault(
+					h => h.host == host && h.preferIpv4 == cbPreferIpv4.Checked);
+				if (match == null)
+				{
+					// Match by host string only (different IPv4 pref)
+					match = settings.hostHistory.FirstOrDefault(h => h.host == host);
+				}
+				if (match == null)
+				{
+					// No history for this host -- create from current UI defaults
+					match = NewHostSettingsFromUi();
+					match.host = host;
+				}
+				return match;
+			}
+		}
+
 		#endregion
 
 		private void mi_Exit_Click(object sender, EventArgs e)
