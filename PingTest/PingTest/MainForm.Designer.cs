@@ -113,10 +113,10 @@ namespace PingTracer
 			// 
 			this.txtHost.Location = new System.Drawing.Point(50, 6);
 			this.txtHost.Name = "txtHost";
-			this.txtHost.Size = new System.Drawing.Size(184, 20);
+			this.txtHost.Size = new System.Drawing.Size(280, 20);
 			this.txtHost.TabIndex = 1;
-			this.toolTip1.SetToolTip(this.txtHost, "Enter the IP address or host name of the destination you wish to monitor.\r\n\r\nYou " +
-        "may click the blue Hosts label to choose a previously entered value.");
+			this.toolTip1.SetToolTip(this.txtHost, "Enter one or more IP addresses or host names, separated by commas.\r\n\r\nExample: go" +
+        "ogle.com, 8.8.8.8, cloudflare.com\r\n\r\nYou may click the blue Hosts label to choose a previously entered value.");
 			this.txtHost.TextChanged += new System.EventHandler(this.txtHost_TextChanged);
 			//
 			// lblHost
@@ -128,8 +128,8 @@ namespace PingTracer
 			this.lblHost.Size = new System.Drawing.Size(32, 13);
 			this.lblHost.TabIndex = 2;
 			this.lblHost.Text = "Hosts:";
-			this.toolTip1.SetToolTip(this.lblHost, "Enter the IP address or host name of the destination you wish to monitor.\r\n\r\nYou " +
-        "may click the blue Hosts label to choose a previously entered value.");
+			this.toolTip1.SetToolTip(this.lblHost, "Enter one or more IP addresses or host names, separated by commas.\r\n\r\nExample: go" +
+        "ogle.com, 8.8.8.8, cloudflare.com\r\n\r\nYou may click the blue Hosts label to choose a previously entered value.");
 			this.lblHost.Click += new System.EventHandler(this.lblHost_Click);
 			// 
 			// label2
@@ -401,7 +401,7 @@ namespace PingTracer
 			// label1
 			// 
 			this.label1.AutoSize = true;
-			this.label1.Location = new System.Drawing.Point(240, 9);
+			this.label1.Location = new System.Drawing.Point(340, 9);
 			this.label1.Name = "label1";
 			this.label1.Size = new System.Drawing.Size(75, 13);
 			this.label1.TabIndex = 22;
@@ -420,7 +420,7 @@ namespace PingTracer
 			// 
 			this.txtDisplayName.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left) 
             | System.Windows.Forms.AnchorStyles.Right)));
-			this.txtDisplayName.Location = new System.Drawing.Point(321, 6);
+			this.txtDisplayName.Location = new System.Drawing.Point(421, 6);
 			this.txtDisplayName.Name = "txtDisplayName";
 			this.txtDisplayName.Size = new System.Drawing.Size(374, 20);
 			this.txtDisplayName.TabIndex = 2;
