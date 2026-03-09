@@ -20,31 +20,20 @@ namespace PingTracer
 	{
 		public bool isRunning { get; private set; } = false;
 		public bool graphsMaximized { get; private set; } = false;
-		private BackgroundWorker controllerWorker;
 		private volatile int pingDelay = 1000;
-
-		private long successfulPings = 0;
-		private long failedPings = 0;
 
 		//private const string dateFormatString = "yyyy'-'MM'-'dd hh':'mm':'ss':'fff tt";
 		private const string fileNameFriendlyDateFormatString = "yyyy'-'MM'-'dd HH'-'mm'-'ss";
 
 		/// <summary>
-		/// This may be null if no ping tracing has begun.
+		/// TabControl that holds one tab per host session.
 		/// </summary>
-		private string currentIPAddress = null;
+		private TabControl tabControlHosts;
 
 		/// <summary>
-		/// Maps IP addresses to their PingGraphControl instances.
+		/// Active ping sessions, one per host.
 		/// </summary>
-		public static SortedList<int, PingGraphControl> pingGraphs = new SortedList<int, PingGraphControl>();
-		public static SortedList<int, IPAddress> pingTargets = new SortedList<int, IPAddress>();
-		public static SortedList<int, bool> pingTargetHasAtLeastOneSuccess = new SortedList<int, bool>();
-		private static int graphSortingCounter = 0;
-		/// <summary>
-		/// After a short period of time, any hosts that have not yet responded to ping are removed from most lists and this flag gets set to true which enables textual logging of ping failures.
-		/// </summary>
-		private bool clearedDeadHosts = false;
+		private List<HostPingSession> activeSessions = new List<HostPingSession>();
 
 		/// <summary>
 		/// A hidden panel that will hold the graphs once clicked.
@@ -134,6 +123,14 @@ namespace PingTracer
 			RememberCurrentPositionThrottled = Throttle.Create(_rememberCurrentPosition, 250, ex => MessageBox.Show(ex.ToString()));
 
 			InitializeComponent();
+
+			// Create TabControl programmatically, replacing panel_Graphs in splitContainer1.Panel2
+			tabControlHosts = new TabControl();
+			tabControlHosts.Dock = DockStyle.Fill;
+			tabControlHosts.ShowToolTips = true;
+			tabControlHosts.SelectedIndexChanged += tabControlHosts_SelectedIndexChanged;
+			splitContainer1.Panel2.Controls.Remove(panel_Graphs);
+			splitContainer1.Panel2.Controls.Add(tabControlHosts);
 
 			defaultWindowSize = this.Size;
 		}
@@ -334,94 +331,46 @@ namespace PingTracer
 			throw new Exception("Unable to resolve '" + address + "'");
 		}
 
-		private void ControllerWorker_RunWorkerCompleted(object sender, RunWorkerCompletedEventArgs e)
+		private void SessionWorker_DoWork(HostPingSession session, BackgroundWorker self)
 		{
-			btnStart.Enabled = true;
-		}
-		private void Invoke(BackgroundWorker worker, Action action)
-		{
-			if (controllerWorker == worker)
-				this.Invoke(action);
-		}
-		private void ControllerWorker_DoWork(object sender, DoWorkEventArgs e)
-		{
-			currentIPAddress = null;
-			object[] args = (object[])e.Argument;
-			BackgroundWorker self = (BackgroundWorker)args[0];
-			string host = (string)args[1];
-			bool traceRoute = (bool)args[2];
-			bool reverseDnsLookup = (bool)args[3];
-			bool preferIpv4 = (bool)args[4];
+			bool traceRoute = false;
+			bool reverseDnsLookup = false;
+			bool preferIpv4 = true;
 
-			Invoke(self, () =>
+			// Read UI state (must use Invoke since we're on a background thread)
+			this.Invoke((Action)(() =>
 			{
 				btnStart.Enabled = true;
-			});
-			foreach (PingGraphControl graph in pingGraphs.Values)
-			{
-				graph.ClearAll();
-				RemoveEventHandlers(graph);
-			}
-			Interlocked.Exchange(ref successfulPings, 0);
-			Interlocked.Exchange(ref failedPings, 0);
-			pingGraphs.Clear();
-			pingTargets.Clear();
-			pingTargetHasAtLeastOneSuccess.Clear();
-			clearedDeadHosts = false;
-			Invoke(self, () =>
-			{
-				panel_Graphs.Controls.Clear();
-			});
-			graphSortingCounter = 0;
+				traceRoute = cbTraceroute.Checked;
+				reverseDnsLookup = cbReverseDNS.Checked;
+				preferIpv4 = cbPreferIpv4.Checked;
+			}));
+
 			IPAddress target = null;
 			try
 			{
-				string[] addresses = host.Split(new char[] { ',', ' ' }, StringSplitOptions.RemoveEmptyEntries);
-				if (addresses.Length == 0)
-				{
-					CreateLogEntry("(" + GetTimestamp(DateTime.Now) + "): Unable to start pinging because the host input is empty.");
-					return;
-				}
-				currentIPAddress = addresses[0];
-				CreateLogEntry("(" + GetTimestamp(DateTime.Now) + "): Initializing pings to " + host);
+				target = StringToIp(session.Host, preferIpv4, out string hostName);
+				session.ResolvedAddress = target.ToString();
 
-				// Multiple addresses
-				if (addresses.Length > 1)
-				{
-					// Don't clear dead hosts from a predefined list
-					clearedDeadHosts = true;
-					foreach (string address in addresses)
-					{
-						if (self.CancellationPending)
-							break;
-						IPAddress ip = StringToIp(address.Trim(), preferIpv4, out string hostName);
+				CreateLogEntry("[" + session.Host + "] (" + GetTimestamp(DateTime.Now) + "): Initializing pings to " + session.Host);
 
-						if (self.CancellationPending)
-							break;
-						AddPingTarget(ip, hostName, reverseDnsLookup);
-					}
-				}
-				// Route
-				else if (traceRoute)
+				if (traceRoute)
 				{
-					CreateLogEntry("Tracing route ...");
-					target = StringToIp(addresses[0], preferIpv4, out string hostName);
+					CreateLogEntry("[" + session.Host + "] Tracing route ...");
 					foreach (TracertEntry entry in Tracert.Trace(target, 64, 5000))
 					{
 						if (self.CancellationPending)
 							break;
-						CreateLogEntry(entry.ToString());
-						AddPingTarget(entry.Address, null, reverseDnsLookup);
+						CreateLogEntry("[" + session.Host + "] " + entry.ToString());
+						session.AddPingTarget(entry.Address, null, reverseDnsLookup, ConfigureGraphFromUI);
 					}
 				}
-				// Single address
 				else
 				{
-					target = StringToIp(addresses[0], preferIpv4, out string hostName);
-					AddPingTarget(target, hostName, reverseDnsLookup);
+					session.AddPingTarget(target, hostName, reverseDnsLookup, ConfigureGraphFromUI);
 				}
 
-				CreateLogEntry("Now beginning pings");
+				CreateLogEntry("[" + session.Host + "] Now beginning pings");
 				Stopwatch sw = null;
 				byte[] buffer = new byte[0];
 
@@ -431,38 +380,38 @@ namespace PingTracer
 				{
 					try
 					{
-						if (!clearedDeadHosts && tenPingsAt != DateTime.MinValue && tenPingsAt.AddSeconds(10) < DateTime.Now)
+						if (!session.ClearedDeadHosts && tenPingsAt != DateTime.MinValue && tenPingsAt.AddSeconds(10) < DateTime.Now)
 						{
-							if (pingTargets.Count > 1)
+							if (session.PingTargets.Count > 1)
 							{
-								IList<int> pingTargetIds = pingTargets.Keys;
+								IList<int> pingTargetIds = session.PingTargets.Keys;
 								foreach (int pingTargetId in pingTargetIds)
 								{
-									if (!pingTargetHasAtLeastOneSuccess[pingTargetId])
+									if (!session.PingTargetHasAtLeastOneSuccess[pingTargetId])
 									{
 										// This ping target has not yet had a successful response. Assume it never will, and delete it.
-										Invoke(self, () =>
+										this.Invoke((Action)(() =>
 										{
-											pingTargets.Remove(pingTargetId);
-											panel_Graphs.Controls.Remove(pingGraphs[pingTargetId]);
-											RemoveEventHandlers(pingGraphs[pingTargetId]);
-											pingGraphs.Remove(pingTargetId);
-											if (pingGraphs.Count == 0)
+											session.PingTargets.Remove(pingTargetId);
+											session.GraphPanel.Controls.Remove(session.PingGraphs[pingTargetId]);
+											RemoveEventHandlers(session.PingGraphs[pingTargetId]);
+											session.PingGraphs.Remove(pingTargetId);
+											if (session.PingGraphs.Count == 0)
 											{
 												Label lblNoGraphsRemain = new Label();
 												lblNoGraphsRemain.Text = "All graphs were removed because" + Environment.NewLine + "none of the hosts responded to pings.";
-												panel_Graphs.Controls.Add(lblNoGraphsRemain);
+												session.GraphPanel.Controls.Add(lblNoGraphsRemain);
 											}
-											ResetGraphTimestamps();
-										});
+											session.ResetGraphTimestamps();
+										}));
 									}
 								}
-								Invoke(self, () =>
+								this.Invoke((Action)(() =>
 								{
-									panel_Graphs_Resize(null, null);
-								});
+									session.GraphPanel_Resize(null, null);
+								}));
 							}
-							clearedDeadHosts = true;
+							session.ClearedDeadHosts = true;
 						}
 						while (!self.CancellationPending && pingDelay <= 0)
 							Thread.Sleep(100);
@@ -482,13 +431,13 @@ namespace PingTracer
 									sw.Restart();
 								DateTime lastPingAt = DateTime.Now;
 								// We can't re-use the same Ping instance because it is only capable of one ping at a time.
-								foreach (KeyValuePair<int, IPAddress> targetMapping in pingTargets)
+								foreach (KeyValuePair<int, IPAddress> targetMapping in session.PingTargets)
 								{
-									PingGraphControl graph = pingGraphs[targetMapping.Key];
+									PingGraphControl graph = session.PingGraphs[targetMapping.Key];
 									long offset = graph.ClearNextOffset();
 									Ping pinger = PingInstancePool.Get();
 									pinger.PingCompleted += pinger_PingCompleted;
-									pinger.SendAsync(targetMapping.Value, 5000, buffer, new object[] { lastPingAt, offset, graph, targetMapping.Key, targetMapping.Value, pinger });
+									pinger.SendAsync(targetMapping.Value, 5000, buffer, new object[] { lastPingAt, offset, graph, targetMapping.Key, targetMapping.Value, pinger, session });
 								}
 							}
 						}
@@ -508,15 +457,72 @@ namespace PingTracer
 			catch (Exception ex)
 			{
 				if (!(ex.InnerException is ThreadAbortException))
-					MessageBox.Show(ex.ToString());
+				{
+					CreateLogEntry("[" + session.Host + "] Unable to resolve: " + ex.Message);
+					// Update the tab title to show error state
+					try
+					{
+						if (session.TabPage.InvokeRequired)
+							session.TabPage.Invoke((Action)(() =>
+							{
+								session.TabPage.Text = session.Host + " (error)";
+								session.TabPage.ToolTipText = ex.Message;
+							}));
+						else
+						{
+							session.TabPage.Text = session.Host + " (error)";
+							session.TabPage.ToolTipText = ex.Message;
+						}
+					}
+					catch (Exception) { }
+				}
 			}
 			finally
 			{
-				if (!string.IsNullOrEmpty(host))
-					CreateLogEntry("(" + GetTimestamp(DateTime.Now) + "): Shutting down pings to " + host);
-				if (isRunning)
-					btnStart_Click(btnStart, new EventArgs());
+				CreateLogEntry("[" + session.Host + "] (" + GetTimestamp(DateTime.Now) + "): Shutting down pings to " + session.Host);
 			}
+		}
+
+		private void SessionWorker_Completed(HostPingSession session)
+		{
+			// Check if all workers are done; if so, re-enable Start button
+			bool allDone = true;
+			foreach (var s in activeSessions)
+			{
+				if (s.Worker != null && s.Worker.IsBusy)
+				{
+					allDone = false;
+					break;
+				}
+			}
+			if (allDone && isRunning)
+			{
+				try
+				{
+					btnStart_Click(btnStart, new EventArgs());
+				}
+				catch (Exception) { }
+			}
+		}
+
+		/// <summary>
+		/// Applies current UI settings to a PingGraphControl and wires event handlers.
+		/// </summary>
+		private void ConfigureGraphFromUI(PingGraphControl graph)
+		{
+			graph.AlwaysShowServerNames = cbAlwaysShowServerNames.Checked;
+			graph.Threshold_Bad = (int)nudBadThreshold.Value;
+			graph.Threshold_Worse = (int)nudWorseThreshold.Value;
+			graph.upperLimit = (int)nudUpLimit.Value;
+			graph.lowerLimit = (int)nudLowLimit.Value;
+			graph.ScalingMethod = ScalingMethod;
+			graph.ShowLastPing = cbLastPing.Checked;
+			graph.ShowAverage = cbAverage.Checked;
+			graph.ShowJitter = cbJitter.Checked;
+			graph.ShowMinMax = cbMinMax.Checked;
+			graph.ShowPacketLoss = cbPacketLoss.Checked;
+			graph.DrawLimitText = cbDrawLimits.Checked;
+			AddEventHandlers(graph);
 		}
 
 		void pinger_PingCompleted(object sender, PingCompletedEventArgs e)
@@ -531,78 +537,49 @@ namespace PingTracer
 				int pingTargetId = (int)args[3]; // Do not assume the pingTargets or pingGraphs containers will have this key!
 				IPAddress remoteHost = (IPAddress)args[4];
 				Ping pinger = (Ping)args[5];
+				HostPingSession session = (HostPingSession)args[6];
 				pinger.PingCompleted -= pinger_PingCompleted;
 				PingInstancePool.Recycle(pinger);
 				if (e.Cancelled)
 				{
 					graph.AddPingLogToSpecificOffset(pingNum, new PingLog(time, 0, IPStatus.Unknown));
-					Interlocked.Increment(ref failedPings);
+					session.IncrementFailed();
 					return;
 				}
 				graph.AddPingLogToSpecificOffset(pingNum, new PingLog(time, (short)e.Reply.RoundtripTime, e.Reply.Status));
 				if (e.Reply.Status != IPStatus.Success)
 				{
-					Interlocked.Increment(ref failedPings);
-					if (clearedDeadHosts && LogFailures && pingTargets.ContainsKey(pingTargetId))
-						CreateLogEntry("" + GetTimestamp(time) + ", " + remoteHost.ToString() + ": " + e.Reply.Status.ToString());
+					session.IncrementFailed();
+					if (session.ClearedDeadHosts && LogFailures && session.PingTargets.ContainsKey(pingTargetId))
+						CreateLogEntry("[" + session.Host + "] " + GetTimestamp(time) + ", " + remoteHost.ToString() + ": " + e.Reply.Status.ToString());
 				}
 				else
 				{
-					if (!clearedDeadHosts)
+					if (!session.ClearedDeadHosts)
 					{
-						pingTargetHasAtLeastOneSuccess[pingTargetId] = true;
+						session.PingTargetHasAtLeastOneSuccess[pingTargetId] = true;
 					}
-					Interlocked.Increment(ref successfulPings);
-					if (LogSuccesses && pingTargets.ContainsKey(pingTargetId))
-						CreateLogEntry("" + GetTimestamp(time) + ", " + remoteHost.ToString() + ": " + e.Reply.Status.ToString() + " in " + e.Reply.RoundtripTime + "ms");
+					session.IncrementSuccessful();
+					if (LogSuccesses && session.PingTargets.ContainsKey(pingTargetId))
+						CreateLogEntry("[" + session.Host + "] " + GetTimestamp(time) + ", " + remoteHost.ToString() + ": " + e.Reply.Status.ToString() + " in " + e.Reply.RoundtripTime + "ms");
 				}
 			}
 			finally
 			{
-				UpdatePingCounts(Interlocked.Read(ref successfulPings), Interlocked.Read(ref failedPings));
+				// Show active tab's counts
+				var activeSession = GetActiveSession();
+				if (activeSession != null)
+					UpdatePingCounts(activeSession.GetSuccessfulPings(), activeSession.GetFailedPings());
 			}
 		}
-		private void AddPingTarget(IPAddress ipAddress, string name, bool reverseDnsLookup)
+		/// <summary>
+		/// Returns the currently active HostPingSession (the one whose tab is selected), or null.
+		/// </summary>
+		private HostPingSession GetActiveSession()
 		{
-			if (ipAddress == null)
-				return;
-			try
-			{
-				if (panel_Graphs.InvokeRequired)
-					panel_Graphs.Invoke((Action<IPAddress, string, bool>)AddPingTarget, ipAddress, name, reverseDnsLookup);
-				else
-				{
-					int id = graphSortingCounter++;
-					PingGraphControl graph = new PingGraphControl(this.settings, ipAddress, name, reverseDnsLookup);
-
-					pingTargets.Add(id, ipAddress);
-					pingGraphs.Add(id, graph);
-					ResetGraphTimestamps();
-					pingTargetHasAtLeastOneSuccess.Add(id, false);
-
-					graph.AlwaysShowServerNames = cbAlwaysShowServerNames.Checked;
-					graph.Threshold_Bad = (int)nudBadThreshold.Value;
-					graph.Threshold_Worse = (int)nudWorseThreshold.Value;
-					graph.upperLimit = (int)nudUpLimit.Value;
-					graph.lowerLimit = (int)nudLowLimit.Value;
-					graph.ScalingMethod = ScalingMethod;
-					graph.ShowLastPing = cbLastPing.Checked;
-					graph.ShowAverage = cbAverage.Checked;
-					graph.ShowJitter = cbJitter.Checked;
-					graph.ShowMinMax = cbMinMax.Checked;
-					graph.ShowPacketLoss = cbPacketLoss.Checked;
-					graph.DrawLimitText = cbDrawLimits.Checked;
-
-					panel_Graphs.Controls.Add(graph);
-					AddEventHandlers(graph);
-					panel_Graphs_Resize(null, null);
-				}
-			}
-			catch (Exception ex)
-			{
-				if (!(ex.InnerException is ThreadAbortException))
-					CreateLogEntry(ex.ToString());
-			}
+			if (tabControlHosts == null || tabControlHosts.SelectedIndex < 0 || tabControlHosts.SelectedIndex >= activeSessions.Count)
+				return null;
+			return activeSessions[tabControlHosts.SelectedIndex];
 		}
 		private void AddEventHandlers(PingGraphControl graph)
 		{
@@ -619,17 +596,6 @@ namespace PingTracer
 			graph.MouseLeave -= panel_Graphs_MouseLeave;
 			graph.MouseUp -= panel_Graphs_MouseUp;
 			graph.KeyDown -= HandleKeyDown;
-		}
-
-		private void ResetGraphTimestamps()
-		{
-			IList<PingGraphControl> all = pingGraphs.Values;
-			foreach (PingGraphControl g in all)
-				g.ShowTimestamps = false;
-
-			PingGraphControl last = all.LastOrDefault();
-			if (last != null)
-				last.ShowTimestamps = true;
 		}
 
 		private void CreateLogEntry(string str)
@@ -669,6 +635,15 @@ namespace PingTracer
 			}
 		}
 
+		private void tabControlHosts_SelectedIndexChanged(object sender, EventArgs e)
+		{
+			var session = GetActiveSession();
+			if (session != null)
+			{
+				UpdatePingCounts(session.GetSuccessfulPings(), session.GetFailedPings());
+			}
+		}
+
 		private void MainForm_FormClosing(object sender, FormClosingEventArgs e)
 		{
 			cla_form?.Close();
@@ -677,6 +652,10 @@ namespace PingTracer
 				SaveProfileFromUI();
 				btnStart_Click(btnStart, new EventArgs());
 			}
+			// Dispose all sessions
+			foreach (var session in activeSessions)
+				session.Dispose();
+			activeSessions.Clear();
 		}
 
 		void panelForm_FormClosing(object sender, FormClosingEventArgs e)
@@ -690,24 +669,10 @@ namespace PingTracer
 
 		private void panel_Graphs_Resize(object sender, EventArgs e)
 		{
-			if (pingGraphs.Count == 0)
-				return;
-			IList<int> keys = pingGraphs.Keys;
-			int width = panel_Graphs.Width;
-			int timestampsHeight = pingGraphs[keys[0]].TimestampsHeight;
-			int height = panel_Graphs.Height - timestampsHeight;
-			int outerHeight = height / pingGraphs.Count;
-			int innerHeight = outerHeight - 1;
-			for (int i = 0; i < keys.Count; i++)
-			{
-				PingGraphControl graph = pingGraphs[keys[i]];
-				if (i == keys.Count - 1)
-				{
-					int leftoverSpace = (height - (outerHeight * keys.Count)) + timestampsHeight;
-					innerHeight += leftoverSpace + 1;
-				}
-				graph.SetBounds(0, i * outerHeight, width, innerHeight);
-			}
+			// Delegate to active session's GraphPanel resize
+			var session = GetActiveSession();
+			if (session != null)
+				session.GraphPanel_Resize(sender, e);
 		}
 
 		#region Form input changed/clicked events
@@ -733,15 +698,16 @@ namespace PingTracer
 
 		private void mi_snapshotGraphs_Click(object sender, EventArgs e)
 		{
-			string address = currentIPAddress;
-			if (address == null)
+			var session = GetActiveSession();
+			if (session == null || session.ResolvedAddress == null)
 			{
 				MessageBox.Show("Unable to save a snapshot of the graphs at this time.");
 				return;
 			}
-			using (Bitmap bmp = new Bitmap(panel_Graphs.Width, panel_Graphs.Height))
+			string address = session.Host;
+			using (Bitmap bmp = new Bitmap(session.GraphPanel.Width, session.GraphPanel.Height))
 			{
-				panel_Graphs.DrawToBitmap(bmp, new Rectangle(0, 0, bmp.Width, bmp.Height));
+				session.GraphPanel.DrawToBitmap(bmp, new Rectangle(0, 0, bmp.Width, bmp.Height));
 				bmp.Save("PingTracer " + address + " " + DateTime.Now.ToString(fileNameFriendlyDateFormatString) + ".png", System.Drawing.Imaging.ImageFormat.Png);
 			}
 		}
@@ -754,13 +720,17 @@ namespace PingTracer
 				return;
 			}
 			SaveProfileFromUI();
-			btnStart.Enabled = false;
 			if (isRunning)
 			{
 				isRunning = false;
 				btnStart.Text = "Click to Start";
 				btnStart.BackColor = Color.FromArgb(255, 128, 128);
-				controllerWorker.CancelAsync();
+				// Cancel all session workers
+				foreach (var session in activeSessions)
+				{
+					if (session.Worker != null && session.Worker.IsBusy)
+						session.Worker.CancelAsync();
+				}
 				txtHost.Enabled = true;
 				cbTraceroute.Enabled = true;
 				cbReverseDNS.Enabled = true;
@@ -768,14 +738,49 @@ namespace PingTracer
 			}
 			else
 			{
+				// Parse hosts from input
+				string[] hosts = txtHost.Text.Split(new char[] { ',', ' ' }, StringSplitOptions.RemoveEmptyEntries)
+					.Select(h => h.Trim())
+					.Where(h => !string.IsNullOrWhiteSpace(h))
+					.Distinct(StringComparer.OrdinalIgnoreCase)
+					.ToArray();
+
+				if (hosts.Length == 0)
+				{
+					CreateLogEntry("No hosts specified");
+					return;
+				}
+
+				// Dispose old sessions and clear tabs
+				foreach (var oldSession in activeSessions)
+					oldSession.Dispose();
+				activeSessions.Clear();
+				tabControlHosts.TabPages.Clear();
+
 				isRunning = true;
 				btnStart.Text = "Click to Stop";
 				btnStart.BackColor = Color.FromArgb(128, 255, 128);
-				controllerWorker = new BackgroundWorker();
-				controllerWorker.WorkerSupportsCancellation = true;
-				controllerWorker.DoWork += ControllerWorker_DoWork;
-				controllerWorker.RunWorkerCompleted += ControllerWorker_RunWorkerCompleted;
-				controllerWorker.RunWorkerAsync(new object[] { controllerWorker, txtHost.Text, cbTraceroute.Checked, cbReverseDNS.Checked, cbPreferIpv4.Checked });
+
+				// Create one session per host
+				foreach (string host in hosts)
+				{
+					HostPingSession session = new HostPingSession(host, settings);
+					session.LogEntry += (msg) => CreateLogEntry("[" + session.Host + "] " + msg);
+					tabControlHosts.TabPages.Add(session.TabPage);
+					activeSessions.Add(session);
+				}
+
+				// Start a BackgroundWorker for each session
+				foreach (var session in activeSessions)
+				{
+					BackgroundWorker worker = new BackgroundWorker();
+					worker.WorkerSupportsCancellation = true;
+					worker.DoWork += (s, args) => SessionWorker_DoWork(session, (BackgroundWorker)s);
+					worker.RunWorkerCompleted += (s, args) => SessionWorker_Completed(session);
+					session.Worker = worker;
+					worker.RunWorkerAsync();
+				}
+
 				txtHost.Enabled = false;
 				cbTraceroute.Enabled = false;
 				cbReverseDNS.Enabled = false;
@@ -808,12 +813,12 @@ namespace PingTracer
 			SaveProfileIfProfileAlreadyExists();
 			try
 			{
-				IList<PingGraphControl> graphs = pingGraphs.Values;
-				foreach (PingGraphControl graph in graphs)
-				{
-					graph.AlwaysShowServerNames = cbAlwaysShowServerNames.Checked;
-					graph.Invalidate();
-				}
+				foreach (var session in activeSessions)
+					foreach (PingGraphControl graph in session.PingGraphs.Values)
+					{
+						graph.AlwaysShowServerNames = cbAlwaysShowServerNames.Checked;
+						graph.Invalidate();
+					}
 			}
 			catch (Exception)
 			{
@@ -827,12 +832,12 @@ namespace PingTracer
 				nudWorseThreshold.Value = nudBadThreshold.Value;
 			try
 			{
-				IList<PingGraphControl> graphs = pingGraphs.Values;
-				foreach (PingGraphControl graph in graphs)
-				{
-					graph.Threshold_Bad = (int)nudBadThreshold.Value;
-					graph.Invalidate();
-				}
+				foreach (var session in activeSessions)
+					foreach (PingGraphControl graph in session.PingGraphs.Values)
+					{
+						graph.Threshold_Bad = (int)nudBadThreshold.Value;
+						graph.Invalidate();
+					}
 			}
 			catch (Exception)
 			{
@@ -846,12 +851,12 @@ namespace PingTracer
 				nudBadThreshold.Value = nudWorseThreshold.Value;
 			try
 			{
-				IList<PingGraphControl> graphs = pingGraphs.Values;
-				foreach (PingGraphControl graph in graphs)
-				{
-					graph.Threshold_Worse = (int)nudWorseThreshold.Value;
-					graph.Invalidate();
-				}
+				foreach (var session in activeSessions)
+					foreach (PingGraphControl graph in session.PingGraphs.Values)
+					{
+						graph.Threshold_Worse = (int)nudWorseThreshold.Value;
+						graph.Invalidate();
+					}
 			}
 			catch (Exception)
 			{
@@ -865,12 +870,12 @@ namespace PingTracer
 			SaveProfileIfProfileAlreadyExists();
 			try
 			{
-				IList<PingGraphControl> graphs = pingGraphs.Values;
-				foreach (PingGraphControl graph in graphs)
-				{
-					graph.upperLimit = (int)nudUpLimit.Value;
-					graph.Invalidate();
-				}
+				foreach (var session in activeSessions)
+					foreach (PingGraphControl graph in session.PingGraphs.Values)
+					{
+						graph.upperLimit = (int)nudUpLimit.Value;
+						graph.Invalidate();
+					}
 			}
 			catch (Exception)
 			{
@@ -884,12 +889,12 @@ namespace PingTracer
 			SaveProfileIfProfileAlreadyExists();
 			try
 			{
-				IList<PingGraphControl> graphs = pingGraphs.Values;
-				foreach (PingGraphControl graph in graphs)
-				{
-					graph.lowerLimit = (int)nudLowLimit.Value;
-					graph.Invalidate();
-				}
+				foreach (var session in activeSessions)
+					foreach (PingGraphControl graph in session.PingGraphs.Values)
+					{
+						graph.lowerLimit = (int)nudLowLimit.Value;
+						graph.Invalidate();
+					}
 			}
 			catch (Exception)
 			{
@@ -901,12 +906,12 @@ namespace PingTracer
 			SaveProfileIfProfileAlreadyExists();
 			try
 			{
-				IList<PingGraphControl> graphs = pingGraphs.Values;
-				foreach (PingGraphControl graph in graphs)
-				{
-					graph.ShowLastPing = cbLastPing.Checked;
-					graph.Invalidate();
-				}
+				foreach (var session in activeSessions)
+					foreach (PingGraphControl graph in session.PingGraphs.Values)
+					{
+						graph.ShowLastPing = cbLastPing.Checked;
+						graph.Invalidate();
+					}
 			}
 			catch (Exception)
 			{
@@ -918,12 +923,12 @@ namespace PingTracer
 			SaveProfileIfProfileAlreadyExists();
 			try
 			{
-				IList<PingGraphControl> graphs = pingGraphs.Values;
-				foreach (PingGraphControl graph in graphs)
-				{
-					graph.ShowAverage = cbAverage.Checked;
-					graph.Invalidate();
-				}
+				foreach (var session in activeSessions)
+					foreach (PingGraphControl graph in session.PingGraphs.Values)
+					{
+						graph.ShowAverage = cbAverage.Checked;
+						graph.Invalidate();
+					}
 			}
 			catch (Exception)
 			{
@@ -934,12 +939,12 @@ namespace PingTracer
 			SaveProfileIfProfileAlreadyExists();
 			try
 			{
-				IList<PingGraphControl> graphs = pingGraphs.Values;
-				foreach (PingGraphControl graph in graphs)
-				{
-					graph.ShowJitter = cbJitter.Checked;
-					graph.Invalidate();
-				}
+				foreach (var session in activeSessions)
+					foreach (PingGraphControl graph in session.PingGraphs.Values)
+					{
+						graph.ShowJitter = cbJitter.Checked;
+						graph.Invalidate();
+					}
 			}
 			catch (Exception)
 			{
@@ -950,12 +955,12 @@ namespace PingTracer
 			SaveProfileIfProfileAlreadyExists();
 			try
 			{
-				IList<PingGraphControl> graphs = pingGraphs.Values;
-				foreach (PingGraphControl graph in graphs)
-				{
-					graph.ShowMinMax = cbMinMax.Checked;
-					graph.Invalidate();
-				}
+				foreach (var session in activeSessions)
+					foreach (PingGraphControl graph in session.PingGraphs.Values)
+					{
+						graph.ShowMinMax = cbMinMax.Checked;
+						graph.Invalidate();
+					}
 			}
 			catch (Exception)
 			{
@@ -967,12 +972,12 @@ namespace PingTracer
 			SaveProfileIfProfileAlreadyExists();
 			try
 			{
-				IList<PingGraphControl> graphs = pingGraphs.Values;
-				foreach (PingGraphControl graph in graphs)
-				{
-					graph.ShowPacketLoss = cbPacketLoss.Checked;
-					graph.Invalidate();
-				}
+				foreach (var session in activeSessions)
+					foreach (PingGraphControl graph in session.PingGraphs.Values)
+					{
+						graph.ShowPacketLoss = cbPacketLoss.Checked;
+						graph.Invalidate();
+					}
 			}
 			catch (Exception)
 			{
@@ -984,12 +989,12 @@ namespace PingTracer
 			SaveProfileIfProfileAlreadyExists();
 			try
 			{
-				IList<PingGraphControl> graphs = pingGraphs.Values;
-				foreach (PingGraphControl graph in graphs)
-				{
-					graph.DrawLimitText = cbDrawLimits.Checked;
-					graph.Invalidate();
-				}
+				foreach (var session in activeSessions)
+					foreach (PingGraphControl graph in session.PingGraphs.Values)
+					{
+						graph.DrawLimitText = cbDrawLimits.Checked;
+						graph.Invalidate();
+					}
 			}
 			catch (Exception)
 			{
@@ -1056,17 +1061,19 @@ namespace PingTracer
 			if (settings.fastRefreshScrollingGraphs || DateTime.Now > lastAllGraphsRedrawTime.AddSeconds(1))
 			{
 				bool aGraphIsInvalidated = false;
-				foreach (PingGraphControl graph in pingGraphs.Values)
-					if (graph.IsInvalidatedSync)
-					{
-						aGraphIsInvalidated = true;
-						break;
-					}
+				foreach (var session in activeSessions)
+					foreach (PingGraphControl graph in session.PingGraphs.Values)
+						if (graph.IsInvalidatedSync)
+						{
+							aGraphIsInvalidated = true;
+							break;
+						}
 				if (!aGraphIsInvalidated)
 				{
 					Console.WriteLine("Invalidating All");
-					foreach (PingGraphControl graph in pingGraphs.Values)
-						graph.InvalidateSync();
+					foreach (var session in activeSessions)
+						foreach (PingGraphControl graph in session.PingGraphs.Values)
+							graph.InvalidateSync();
 					lastAllGraphsRedrawTime = DateTime.Now;
 				}
 			}
@@ -1085,11 +1092,12 @@ namespace PingTracer
 				if (!mouseMayBeClickingGraph)
 				{
 					int dx = e.Location.X - pGraphMouseLastSeenAt.X;
-					if (dx != 0 && settings.graphScrollMultiplier != 0 && pingGraphs.Count > 0)
+					var activeSession = GetActiveSession();
+					if (dx != 0 && settings.graphScrollMultiplier != 0 && activeSession != null && activeSession.PingGraphs.Count > 0)
 					{
-						int newScrollXOffset = pingGraphs.Values[0].ScrollXOffset + (dx * settings.graphScrollMultiplier);
+						int newScrollXOffset = activeSession.PingGraphs.Values[0].ScrollXOffset + (dx * settings.graphScrollMultiplier);
 
-						foreach (PingGraphControl graph in pingGraphs.Values)
+						foreach (PingGraphControl graph in activeSession.PingGraphs.Values)
 							graph.ScrollXOffset = newScrollXOffset;
 
 						refreshGraphs();
@@ -1104,7 +1112,7 @@ namespace PingTracer
 							mouseWasTeleported = true;
 						}
 						else if (Cursor.Position.X <= Bounds.Left + offset //cursor moving to the left
-							&& pingGraphs.Values[0].ScrollXOffset != 0) //usability: only teleport mouse if graphs have data to the right
+							&& activeSession.PingGraphs.Values[0].ScrollXOffset != 0) //usability: only teleport mouse if graphs have data to the right
 						{
 							//teleport mouse to the right
 							Cursor.Position = new Point(Bounds.Right - offset, Cursor.Position.Y);
@@ -1134,29 +1142,32 @@ namespace PingTracer
 		}
 		private void HandleKeyDown(object sender, KeyEventArgs e)
 		{
+			var activeSession = GetActiveSession();
+			if (activeSession == null)
+				return;
 			switch (e.KeyData)
 			{
 				case Keys.Home: //Pos1
 				case Keys.D9:
-					foreach (PingGraphControl graph in pingGraphs.Values)
+					foreach (PingGraphControl graph in activeSession.PingGraphs.Values)
 						graph.ScrollXOffset = graph.cachedPings - graph.Width - (settings.delayMostRecentPing ? 1 : 0);
 					e.Handled = true;
 					break;
 				case Keys.End:
 				case Keys.D0:
-					foreach (PingGraphControl graph in pingGraphs.Values)
+					foreach (PingGraphControl graph in activeSession.PingGraphs.Values)
 						graph.ScrollXOffset = 0;
 					e.Handled = true;
 					break;
 				case Keys.PageUp:
 				case Keys.OemMinus:
-					foreach (PingGraphControl graph in pingGraphs.Values)
+					foreach (PingGraphControl graph in activeSession.PingGraphs.Values)
 						graph.ScrollXOffset += graph.Width;
 					e.Handled = true;
 					break;
 				case Keys.PageDown:
 				case Keys.Oemplus:
-					foreach (PingGraphControl graph in pingGraphs.Values)
+					foreach (PingGraphControl graph in activeSession.PingGraphs.Values)
 						graph.ScrollXOffset -= graph.Width;
 					e.Handled = true;
 					break;
@@ -1167,18 +1178,19 @@ namespace PingTracer
 		}
 		private void panel_Graphs_Click(object sender, EventArgs e)
 		{
-			SetGraphsMaximizedState(panel_Graphs.Parent == splitContainer1.Panel2);
+			SetGraphsMaximizedState(!graphsMaximized);
 		}
 		private void SetGraphsMaximizedState(bool maximize)
 		{
 			if (maximize)
 			{
+				var activeSession = GetActiveSession();
+				if (activeSession == null) return;
 				graphsMaximized = true;
 				panelForm.FormBorderStyle = System.Windows.Forms.FormBorderStyle.None;
-				panelForm.Controls.Add(panel_Graphs);
-				panel_Graphs.Dock = DockStyle.Fill;
+				panelForm.Controls.Add(activeSession.GraphPanel);
+				activeSession.GraphPanel.Dock = DockStyle.Fill;
 				panelForm.Show();
-				//panelForm.SetBounds(this.Left, this.Top, this.Width, this.Height);
 				panelForm.SetBounds(this.Left + settings.osWindowLeftMargin, this.Top + settings.osWindowTopMargin, this.Width - (settings.osWindowLeftMargin + settings.osWindowRightMargin), this.Height - settings.osWindowBottomMargin);
 				this.Hide();
 				MaximizeGraphsChanged.Invoke(this, EventArgs.Empty);
@@ -1186,8 +1198,12 @@ namespace PingTracer
 			else
 			{
 				graphsMaximized = false;
-				splitContainer1.Panel2.Controls.Add(panel_Graphs);
-				panel_Graphs.Dock = DockStyle.Fill;
+				var activeSession = GetActiveSession();
+				if (activeSession != null)
+				{
+					activeSession.TabPage.Controls.Add(activeSession.GraphPanel);
+					activeSession.GraphPanel.Dock = DockStyle.Fill;
+				}
 				this.Show();
 				panelForm.Hide();
 				MaximizeGraphsChanged.Invoke(this, EventArgs.Empty);
@@ -1480,12 +1496,12 @@ namespace PingTracer
 			SaveProfileIfProfileAlreadyExists();
 			try
 			{
-				IList<PingGraphControl> graphs = pingGraphs.Values;
-				foreach (PingGraphControl graph in graphs)
-				{
-					graph.ScalingMethod = ScalingMethod;
-					graph.Invalidate();
-				}
+				foreach (var session in activeSessions)
+					foreach (PingGraphControl graph in session.PingGraphs.Values)
+					{
+						graph.ScalingMethod = ScalingMethod;
+						graph.Invalidate();
+					}
 			}
 			catch (Exception)
 			{
