@@ -65,6 +65,7 @@
     <Compile Include="CommandLineArgsForm.Designer.cs">
       <DependentUpon>CommandLineArgsForm.cs</DependentUpon>
     </Compile>
+    <Compile Include="DraggableTabControl.cs" />
     <Compile Include="Extensions.cs" />
     <Compile Include="GraphScalingMethod.cs" />
     <Compile Include="HostPingSession.cs" />
