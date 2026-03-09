@@ -1593,7 +1593,6 @@ namespace PingTracer
 					settings.lastWindowParams = new WindowParams(this.Location.X, this.Location.Y, this.Size.Width, this.Size.Height);
 					settings.Save();
 				}
-				lblFailed.Text = (int.Parse(lblFailed.Text) + 1).ToString();
 			}
 		}
 
