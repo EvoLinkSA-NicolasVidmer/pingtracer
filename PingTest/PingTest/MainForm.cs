@@ -606,10 +606,8 @@ namespace PingTracer
 			}
 			finally
 			{
-				// Show active tab's counts
-				var activeSession = GetActiveSession();
-				if (activeSession != null)
-					UpdatePingCounts(activeSession.GetSuccessfulPings(), activeSession.GetFailedPings());
+				// Show active tab's counts (or totals when Overview is selected)
+				UpdateStatusBarCounts();
 			}
 		}
 		/// <summary>
@@ -658,6 +656,26 @@ namespace PingTracer
 			}
 		}
 
+		private void UpdateStatusBarCounts()
+		{
+			var session = GetActiveSession();
+			if (session != null)
+			{
+				UpdatePingCounts(session.GetSuccessfulPings(), session.GetFailedPings());
+			}
+			else
+			{
+				// Overview tab: sum all sessions
+				long totalSuccess = 0, totalFailed = 0;
+				foreach (var s in activeSessions)
+				{
+					totalSuccess += s.GetSuccessfulPings();
+					totalFailed += s.GetFailedPings();
+				}
+				UpdatePingCounts(totalSuccess, totalFailed);
+			}
+		}
+
 		private void UpdatePingCounts(long successful, long failed)
 		{
 			try
@@ -677,11 +695,7 @@ namespace PingTracer
 
 		private void tabControlHosts_SelectedIndexChanged(object sender, EventArgs e)
 		{
-			var session = GetActiveSession();
-			if (session != null)
-				UpdatePingCounts(session.GetSuccessfulPings(), session.GetFailedPings());
-			else
-				UpdatePingCounts(0, 0);
+			UpdateStatusBarCounts();
 		}
 
 		private void TabControl_TabsReordered(object sender, EventArgs e)
