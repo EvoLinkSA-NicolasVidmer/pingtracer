@@ -36,6 +36,11 @@ namespace PingTracer
 		private List<HostPingSession> activeSessions = new List<HostPingSession>();
 
 		/// <summary>
+		/// Overview dashboard panel showing summary of all hosts.
+		/// </summary>
+		private OverviewPanel overviewPanel;
+
+		/// <summary>
 		/// A hidden panel that will hold the graphs once clicked.
 		/// </summary>
 		Form panelForm = new Form();
@@ -133,6 +138,13 @@ namespace PingTracer
 			tabControlHosts.TabsReordered += TabControl_TabsReordered;
 			splitContainer1.Panel2.Controls.Remove(panel_Graphs);
 			splitContainer1.Panel2.Controls.Add(tabControlHosts);
+
+			overviewPanel = new OverviewPanel();
+			overviewPanel.HostNavigationRequested += (s, tabIndex) =>
+			{
+				if (tabIndex > 0 && tabIndex < tabControlHosts.TabPages.Count)
+					tabControlHosts.SelectedIndex = tabIndex;
+			};
 
 			defaultWindowSize = this.Size;
 		}
@@ -656,6 +668,7 @@ namespace PingTracer
 				session.Worker.CancelAsync();
 
 			activeSessions.RemoveAt(sessionIndex);
+			overviewPanel.RemoveSession(session);
 			tabControlHosts.TabPages.RemoveAt(tabIndex);
 			session.Dispose();
 
@@ -695,6 +708,7 @@ namespace PingTracer
 				SaveProfileFromUI();
 				btnStart_Click(btnStart, new EventArgs());
 			}
+			overviewPanel.ClearSessions();
 			// Dispose all sessions
 			foreach (var session in activeSessions)
 				session.Dispose();
@@ -774,6 +788,7 @@ namespace PingTracer
 					if (session.Worker != null && session.Worker.IsBusy)
 						session.Worker.CancelAsync();
 				}
+				overviewPanel.ClearSessions();
 				txtHost.Enabled = true;
 				cbTraceroute.Enabled = true;
 				cbReverseDNS.Enabled = true;
@@ -802,6 +817,8 @@ namespace PingTracer
 
 				// Insert Overview tab at index 0 (always present, not closeable)
 				TabPage overviewTab = new TabPage("Overview");
+				overviewPanel.Dock = DockStyle.Fill;
+				overviewTab.Controls.Add(overviewPanel);
 				tabControlHosts.TabPages.Add(overviewTab);
 
 				isRunning = true;
@@ -827,6 +844,9 @@ namespace PingTracer
 					session.Worker = worker;
 					worker.RunWorkerAsync();
 				}
+
+				overviewPanel.UpdateSessions(activeSessions);
+				tabControlHosts.SelectedIndex = 0;
 
 				txtHost.Enabled = false;
 				cbTraceroute.Enabled = false;
