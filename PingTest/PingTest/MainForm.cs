@@ -156,6 +156,11 @@ namespace PingTracer
 			panelForm.FormClosing += panelForm_FormClosing;
 			selectPingsPerSecond.SelectedIndex = 0;
 			settings.Load();
+			// Restore multi-host list from last session
+			if (!string.IsNullOrWhiteSpace(settings.lastHosts))
+			{
+				txtHost.Text = settings.lastHosts;
+			}
 			StartupOptions options = new StartupOptions(args);
 			lock (settings.hostHistory)
 			{
@@ -200,6 +205,24 @@ namespace PingTracer
 				else
 				{
 					this.ScalingMethod = GraphScalingMethod.Classic;
+				}
+			}
+			// If we restored a multi-host list but no CLI host was specified,
+			// load the first host's settings into UI controls
+			if (options.StartupHostName == null && !string.IsNullOrWhiteSpace(settings.lastHosts))
+			{
+				string firstHost = settings.lastHosts.Split(new char[] { ',', ' ' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+				if (firstHost != null)
+				{
+					HostSettings firstHostSettings = null;
+					lock (settings.hostHistory)
+					{
+						firstHostSettings = settings.hostHistory.FirstOrDefault(h => h.host == firstHost.Trim());
+					}
+					if (firstHostSettings != null)
+						LoadProfileIntoUI(firstHostSettings);
+					// Restore the full multi-host text (LoadProfileIntoUI set it to single host)
+					txtHost.Text = settings.lastHosts;
 				}
 			}
 			selectPingsPerSecond_SelectedIndexChanged(null, null);
@@ -674,10 +697,18 @@ namespace PingTracer
 		private void MainForm_FormClosing(object sender, FormClosingEventArgs e)
 		{
 			cla_form?.Close();
+			// Save current host list for session restore (PERS-02)
+			settings.lastHosts = txtHost.Text;
 			if (isRunning)
 			{
 				SaveProfileFromUI();
 				btnStart_Click(btnStart, new EventArgs());
+			}
+			else
+			{
+				// Not running -- still save lastHosts and current profile
+				settings.lastHosts = txtHost.Text;
+				SaveProfileFromUI();
 			}
 			overviewPanel.ClearSessions();
 			// Dispose all sessions
@@ -750,6 +781,18 @@ namespace PingTracer
 			SaveProfileFromUI();
 			if (isRunning)
 			{
+				// Save per-host settings for each active session (PERS-01)
+				foreach (var session in activeSessions)
+				{
+					HostSettings hs = FindHostSettings(session.Host);
+					lock (settings.hostHistory)
+					{
+						settings.hostHistory.RemoveAll(h => h.host == session.Host && h.preferIpv4 == hs.preferIpv4);
+						settings.hostHistory.Insert(0, hs);
+					}
+				}
+				settings.Save();
+
 				isRunning = false;
 				btnStart.Text = "Click to Start";
 				btnStart.BackColor = Color.FromArgb(255, 128, 128);
@@ -780,6 +823,10 @@ namespace PingTracer
 					return;
 				}
 
+				// Save multi-host list for session restore (PERS-02)
+				settings.lastHosts = string.Join(",", hosts);
+				settings.Save();
+
 				// Dispose old sessions and clear tabs
 				foreach (var oldSession in activeSessions)
 					oldSession.Dispose();
@@ -799,6 +846,13 @@ namespace PingTracer
 				// Create one session per host
 				foreach (string host in hosts)
 				{
+					// Look up per-host settings and save to history (PERS-01)
+					HostSettings hostSettings = FindHostSettings(host);
+					lock (settings.hostHistory)
+					{
+						settings.hostHistory.RemoveAll(h => h.host == host && h.preferIpv4 == hostSettings.preferIpv4);
+						settings.hostHistory.Insert(0, hostSettings);
+					}
 					HostPingSession session = new HostPingSession(host, settings);
 					session.LogEntry += (msg) => CreateLogEntry("[" + session.Host + "] " + msg);
 					tabControlHosts.TabPages.Add(session.TabPage);
@@ -1320,17 +1374,43 @@ namespace PingTracer
 
 		private void SaveProfileIfProfileAlreadyExists()
 		{
-			lock (settings.hostHistory)
+			if (isRunning && activeSessions.Count > 0)
 			{
-				bool hostExists = false;
-				foreach (HostSettings p in settings.hostHistory)
-					if (p.host == txtHost.Text && p.preferIpv4 == cbPreferIpv4.Checked)
+				// Multi-host mode: save each active session's settings individually
+				lock (settings.hostHistory)
+				{
+					foreach (var session in activeSessions)
 					{
-						hostExists = true;
-						break;
+						HostSettings hs = NewHostSettingsFromUi();
+						hs.host = session.Host;
+						for (int i = 0; i < settings.hostHistory.Count; i++)
+						{
+							if (settings.hostHistory[i].host == session.Host && settings.hostHistory[i].preferIpv4 == hs.preferIpv4)
+							{
+								settings.hostHistory.RemoveAt(i);
+								break;
+							}
+						}
+						settings.hostHistory.Insert(0, hs);
 					}
-				if (hostExists)
-					SaveProfileFromUI();
+					settings.Save();
+				}
+			}
+			else
+			{
+				// Single-host / not running: original behavior
+				lock (settings.hostHistory)
+				{
+					bool hostExists = false;
+					foreach (HostSettings p in settings.hostHistory)
+						if (p.host == txtHost.Text && p.preferIpv4 == cbPreferIpv4.Checked)
+						{
+							hostExists = true;
+							break;
+						}
+					if (hostExists)
+						SaveProfileFromUI();
+				}
 			}
 		}
 		private void DeleteCurrentProfile()
