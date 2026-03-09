@@ -580,12 +580,16 @@ namespace PingTracer
 				{
 					graph.AddPingLogToSpecificOffset(pingNum, new PingLog(time, 0, IPStatus.Unknown));
 					session.IncrementFailed();
+					if (session.PingTargets.Count > 0 && pingTargetId == session.PingTargets.Keys[session.PingTargets.Keys.Count - 1])
+						session.IncrementDestinationFailed();
 					return;
 				}
 				graph.AddPingLogToSpecificOffset(pingNum, new PingLog(time, (short)e.Reply.RoundtripTime, e.Reply.Status));
 				if (e.Reply.Status != IPStatus.Success)
 				{
 					session.IncrementFailed();
+					if (session.PingTargets.Count > 0 && pingTargetId == session.PingTargets.Keys[session.PingTargets.Keys.Count - 1])
+						session.IncrementDestinationFailed();
 					if (session.ClearedDeadHosts && LogFailures && session.PingTargets.ContainsKey(pingTargetId))
 						CreateLogEntry("[" + session.Host + "] " + GetTimestamp(time) + ", " + remoteHost.ToString() + ": " + e.Reply.Status.ToString());
 				}
@@ -802,7 +806,7 @@ namespace PingTracer
 					if (session.Worker != null && session.Worker.IsBusy)
 						session.Worker.CancelAsync();
 				}
-				overviewPanel.ClearSessions();
+				overviewPanel.StopRefreshing();
 				txtHost.Enabled = true;
 				cbTraceroute.Enabled = true;
 				cbReverseDNS.Enabled = true;

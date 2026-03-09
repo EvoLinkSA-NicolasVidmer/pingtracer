@@ -55,9 +55,10 @@ namespace PingTracer
 			var colStatus = new DataGridViewTextBoxColumn { Name = "Status", HeaderText = "Status", FillWeight = 15 };
 			var colAvgLatency = new DataGridViewTextBoxColumn { Name = "AvgLatency", HeaderText = "Avg Latency", FillWeight = 15 };
 			var colPacketLoss = new DataGridViewTextBoxColumn { Name = "PacketLoss", HeaderText = "Pkt Loss", FillWeight = 15 };
+			var colPingFailed = new DataGridViewTextBoxColumn { Name = "PingFailed", HeaderText = "Ping Failed", FillWeight = 12 };
 			var colSparkline = new SparklineColumn { Name = "Sparkline", HeaderText = "Trend", FillWeight = 25 };
 
-			dataGridView.Columns.AddRange(new DataGridViewColumn[] { colHost, colStatus, colAvgLatency, colPacketLoss, colSparkline });
+			dataGridView.Columns.AddRange(new DataGridViewColumn[] { colHost, colStatus, colAvgLatency, colPacketLoss, colPingFailed, colSparkline });
 
 			dataGridView.CellClick += DataGridView_CellClick;
 
@@ -110,10 +111,20 @@ namespace PingTracer
 				dataGridView.Rows[rowIdx].Cells["Status"].Value = "Starting...";
 				dataGridView.Rows[rowIdx].Cells["AvgLatency"].Value = "-";
 				dataGridView.Rows[rowIdx].Cells["PacketLoss"].Value = "-";
+				dataGridView.Rows[rowIdx].Cells["PingFailed"].Value = "0";
 				dataGridView.Rows[rowIdx].Cells["Sparkline"].Value = new short[0];
 			}
 
 			refreshTimer.Start();
+		}
+
+		/// <summary>
+		/// Called by MainForm when pinging stops. Stops the refresh timer
+		/// but keeps the current rows and data visible.
+		/// </summary>
+		public void StopRefreshing()
+		{
+			refreshTimer.Stop();
 		}
 
 		/// <summary>
@@ -205,6 +216,14 @@ namespace PingTracer
 				{
 					row.Cells["AvgLatency"].Value = destTotal > 0 ? "Timeout" : "-";
 				}
+
+				// Destination ping fail count (cumulative)
+				long destFails = session.GetDestinationFailedPings();
+				row.Cells["PingFailed"].Value = destFails.ToString();
+				if (destFails > 0)
+					row.Cells["PingFailed"].Style.ForeColor = Color.Red;
+				else
+					row.Cells["PingFailed"].Style.ForeColor = Color.FromArgb(0, 128, 0);
 
 				// Sparkline data
 				row.Cells["Sparkline"].Value = recent;

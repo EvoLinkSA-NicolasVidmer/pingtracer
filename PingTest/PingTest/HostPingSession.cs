@@ -72,6 +72,7 @@ namespace PingTracer
 		private int graphSortingCounter;
 		private long successfulPings;
 		private long failedPings;
+		private long destinationFailedPings;
 		private Settings settings;
 		private bool disposed;
 
@@ -101,6 +102,7 @@ namespace PingTracer
 			this.graphSortingCounter = 0;
 			this.successfulPings = 0;
 			this.failedPings = 0;
+			this.destinationFailedPings = 0;
 
 			PingGraphs = new SortedList<int, PingGraphControl>();
 			PingTargets = new SortedList<int, IPAddress>();
@@ -251,12 +253,30 @@ namespace PingTracer
 		}
 
 		/// <summary>
+		/// Increments the destination-only failed ping counter (thread-safe).
+		/// Only called when the last hop (destination) ping fails.
+		/// </summary>
+		public void IncrementDestinationFailed()
+		{
+			Interlocked.Increment(ref destinationFailedPings);
+		}
+
+		/// <summary>
+		/// Returns the current count of destination-only failed pings (thread-safe).
+		/// </summary>
+		public long GetDestinationFailedPings()
+		{
+			return Interlocked.Read(ref destinationFailedPings);
+		}
+
+		/// <summary>
 		/// Resets both ping counters to zero (thread-safe).
 		/// </summary>
 		public void ResetCounts()
 		{
 			Interlocked.Exchange(ref successfulPings, 0);
 			Interlocked.Exchange(ref failedPings, 0);
+			Interlocked.Exchange(ref destinationFailedPings, 0);
 		}
 
 		/// <summary>
