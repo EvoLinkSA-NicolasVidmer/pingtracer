@@ -422,7 +422,7 @@ namespace PingTracer
             | System.Windows.Forms.AnchorStyles.Right)));
 			this.txtDisplayName.Location = new System.Drawing.Point(421, 6);
 			this.txtDisplayName.Name = "txtDisplayName";
-			this.txtDisplayName.Size = new System.Drawing.Size(374, 20);
+			this.txtDisplayName.Size = new System.Drawing.Size(274, 20);
 			this.txtDisplayName.TabIndex = 2;
 			this.toolTip1.SetToolTip(this.txtDisplayName, "(Optional) \r\nA memorable name to show in the history \r\nwhen you click on the blue" +
         " Host label.");
