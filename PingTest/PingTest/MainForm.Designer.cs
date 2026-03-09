@@ -764,6 +764,7 @@ namespace PingTracer
 			this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
 			this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
 			this.ClientSize = new System.Drawing.Size(780, 540);
+			this.Controls.Add(this.btnStart);
 			this.Controls.Add(this.selectPingsPerSecond);
 			this.Controls.Add(this.cbReverseDNS);
 			this.Controls.Add(this.groupBox1);
@@ -777,7 +778,6 @@ namespace PingTracer
 			this.Controls.Add(this.label7);
 			this.Controls.Add(this.lblSuccessful);
 			this.Controls.Add(this.label4);
-			this.Controls.Add(this.btnStart);
 			this.Controls.Add(this.nudPingsPerSecond);
 			this.Controls.Add(this.label2);
 			this.Controls.Add(this.lblHost);
