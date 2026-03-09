@@ -5,17 +5,11 @@ using System.Windows.Forms;
 namespace PingTracer
 {
 	/// <summary>
-	/// TabControl subclass with owner-drawn close buttons on host tabs (index > 0)
-	/// and drag-to-reorder support. The Overview tab at index 0 has no close button
-	/// and cannot be dragged or become a drag target.
+	/// TabControl subclass with drag-to-reorder support. The Overview tab at index 0
+	/// cannot be dragged or become a drag target.
 	/// </summary>
 	public class DraggableTabControl : TabControl
 	{
-		/// <summary>
-		/// Fires with the tab index when the close button on a host tab is clicked.
-		/// </summary>
-		public event EventHandler<int> TabCloseRequested;
-
 		/// <summary>
 		/// Fires after a drag-drop reorder of tabs completes.
 		/// </summary>
@@ -26,51 +20,13 @@ namespace PingTracer
 
 		public DraggableTabControl()
 		{
-			DrawMode = TabDrawMode.OwnerDrawFixed;
-			Padding = new Point(12, 4);
 			AllowDrop = true;
 			SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
 
-			DrawItem += DrawTabWithCloseButton;
 			MouseDown += HandleTabMouseDown;
 			MouseMove += HandleTabMouseMove;
 			DragOver += HandleDragOver;
 			DragDrop += HandleDragDrop;
-		}
-
-		private void DrawTabWithCloseButton(object sender, DrawItemEventArgs e)
-		{
-			Rectangle tabRect = GetTabRect(e.Index);
-			bool isSelected = (SelectedIndex == e.Index);
-
-			// Fill background
-			using (Brush bgBrush = new SolidBrush(isSelected ? SystemColors.Control : SystemColors.ControlLight))
-			{
-				e.Graphics.FillRectangle(bgBrush, tabRect);
-			}
-
-			if (e.Index == 0)
-			{
-				// Overview tab: text centered, no close button
-				TextRenderer.DrawText(e.Graphics, TabPages[e.Index].Text, Font, tabRect,
-					SystemColors.ControlText,
-					TextFormatFlags.VerticalCenter | TextFormatFlags.HorizontalCenter);
-			}
-			else
-			{
-				// Host tabs: text left-aligned with room for close button, then draw "x"
-				Rectangle textRect = new Rectangle(tabRect.X + 4, tabRect.Y, tabRect.Width - 22, tabRect.Height);
-				TextRenderer.DrawText(e.Graphics, TabPages[e.Index].Text, Font, textRect,
-					SystemColors.ControlText,
-					TextFormatFlags.VerticalCenter | TextFormatFlags.Left);
-
-				// Draw close "x" button
-				using (Font closeFont = new Font(Font.FontFamily, 7f, FontStyle.Bold))
-				{
-					e.Graphics.DrawString("x", closeFont, Brushes.Gray,
-						tabRect.Right - 18, tabRect.Y + 4);
-				}
-			}
 		}
 
 		private void HandleTabMouseDown(object sender, MouseEventArgs e)
@@ -82,15 +38,7 @@ namespace PingTracer
 					continue;
 
 				if (i == 0)
-					return; // Overview tab: not closeable, not draggable
-
-				// Check if click is on close button
-				Rectangle closeRect = new Rectangle(tabRect.Right - 18, tabRect.Y + 4, 14, 14);
-				if (closeRect.Contains(e.Location))
-				{
-					TabCloseRequested?.Invoke(this, i);
-					return;
-				}
+					return; // Overview tab: not draggable
 
 				// Start potential drag
 				draggedTab = TabPages[i];

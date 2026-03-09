@@ -15,6 +15,19 @@ namespace PingTracer
 			this.ValueType = typeof(short[]);
 		}
 
+		public override Type FormattedValueType
+		{
+			get { return typeof(short[]); }
+		}
+
+		protected override object GetFormattedValue(object value, int rowIndex,
+			ref DataGridViewCellStyle cellStyle, System.ComponentModel.TypeConverter valueTypeConverter,
+			System.ComponentModel.TypeConverter formattedValueTypeConverter,
+			DataGridViewDataErrorContexts context)
+		{
+			return value;
+		}
+
 		protected override void Paint(Graphics graphics, Rectangle clipBounds, Rectangle cellBounds,
 			int rowIndex, DataGridViewElementStates cellState, object value, object formattedValue,
 			string errorText, DataGridViewCellStyle cellStyle,

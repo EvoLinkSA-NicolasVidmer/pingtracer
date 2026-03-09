@@ -160,15 +160,21 @@ namespace PingTracer
 					hostDisplay = session.Host + " (" + session.ResolvedAddress + ")";
 				row.Cells["Host"].Value = hostDisplay;
 
-				// Ping counts
-				long success = session.GetSuccessfulPings();
-				long failed = session.GetFailedPings();
-				long total = success + failed;
+				// Get destination-only ping data (last hop graph)
+				short[] recent = session.GetRecentPingTimes(100);
+				int destSuccess = 0;
+				int destFailed = 0;
+				for (int j = 0; j < recent.Length; j++)
+				{
+					if (recent[j] > 0) destSuccess++;
+					else if (recent[j] < 0) destFailed++;
+				}
+				int destTotal = destSuccess + destFailed;
 
-				// Status
+				// Status (based on destination only)
 				string status = "Idle";
 				if (session.Worker != null && session.Worker.IsBusy)
-					status = failed == 0 ? "OK" : "Degraded";
+					status = destFailed == 0 ? "OK" : "Degraded";
 				row.Cells["Status"].Value = status;
 
 				// Color the status cell
@@ -177,9 +183,9 @@ namespace PingTracer
 				else if (status == "Degraded")
 					row.Cells["Status"].Style.ForeColor = Color.FromArgb(200, 128, 0);
 
-				// Packet loss
-				double lossPercent = total > 0 ? (failed / (double)total) * 100 : 0;
-				row.Cells["PacketLoss"].Value = total > 0 ? lossPercent.ToString("0.0") + "%" : "-";
+				// Packet loss (destination only)
+				double lossPercent = destTotal > 0 ? (destFailed / (double)destTotal) * 100 : 0;
+				row.Cells["PacketLoss"].Value = destTotal > 0 ? lossPercent.ToString("0.0") + "%" : "-";
 
 				if (lossPercent > 5)
 					row.Cells["PacketLoss"].Style.ForeColor = Color.Red;
@@ -188,8 +194,7 @@ namespace PingTracer
 				else
 					row.Cells["PacketLoss"].Style.ForeColor = Color.FromArgb(0, 128, 0);
 
-				// Average latency (from recent pings)
-				short[] recent = session.GetRecentPingTimes(100);
+				// Average latency (from destination pings)
 				var successes = recent.Where(t => t > 0);
 				if (successes.Any())
 				{
@@ -198,7 +203,7 @@ namespace PingTracer
 				}
 				else
 				{
-					row.Cells["AvgLatency"].Value = total > 0 ? "Timeout" : "-";
+					row.Cells["AvgLatency"].Value = destTotal > 0 ? "Timeout" : "-";
 				}
 
 				// Sparkline data

@@ -134,7 +134,6 @@ namespace PingTracer
 			tabControlHosts.Dock = DockStyle.Fill;
 			tabControlHosts.ShowToolTips = true;
 			tabControlHosts.SelectedIndexChanged += tabControlHosts_SelectedIndexChanged;
-			tabControlHosts.TabCloseRequested += TabControl_TabCloseRequested;
 			tabControlHosts.TabsReordered += TabControl_TabsReordered;
 			splitContainer1.Panel2.Controls.Remove(panel_Graphs);
 			splitContainer1.Panel2.Controls.Add(tabControlHosts);
@@ -654,34 +653,6 @@ namespace PingTracer
 			var session = GetActiveSession();
 			if (session != null)
 				UpdatePingCounts(session.GetSuccessfulPings(), session.GetFailedPings());
-			else
-				UpdatePingCounts(0, 0);
-		}
-
-		private void TabControl_TabCloseRequested(object sender, int tabIndex)
-		{
-			if (tabIndex < 1 || tabIndex > activeSessions.Count) return;
-			int sessionIndex = tabIndex - 1;
-			HostPingSession session = activeSessions[sessionIndex];
-
-			if (session.Worker != null && session.Worker.IsBusy)
-				session.Worker.CancelAsync();
-
-			activeSessions.RemoveAt(sessionIndex);
-			overviewPanel.RemoveSession(session);
-			tabControlHosts.TabPages.RemoveAt(tabIndex);
-			session.Dispose();
-
-			// If all host tabs closed while running, auto-stop
-			if (activeSessions.Count == 0 && isRunning)
-			{
-				btnStart_Click(btnStart, new EventArgs());
-				return;
-			}
-
-			var active = GetActiveSession();
-			if (active != null)
-				UpdatePingCounts(active.GetSuccessfulPings(), active.GetFailedPings());
 			else
 				UpdatePingCounts(0, 0);
 		}
