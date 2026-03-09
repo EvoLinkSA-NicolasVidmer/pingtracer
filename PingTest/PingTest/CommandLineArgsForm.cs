@@ -55,9 +55,21 @@ namespace PingTracer
 				mainForm.Size.Width - (mL + mR),
 				mainForm.Size.Height - (mT + mB));
 
-			options.StartupHostName = mainForm.txtDisplayName.Text;
-			if (string.IsNullOrWhiteSpace(options.StartupHostName))
-				options.StartupHostName = mainForm.txtHost.Text;
+			// In multi-host mode, always use txtHost (display name is per-host, not applicable)
+			string hostText = mainForm.txtHost.Text;
+			bool isMultiHost = hostText != null &&
+				hostText.Split(new char[] { ',', ' ' }, StringSplitOptions.RemoveEmptyEntries).Length > 1;
+
+			if (isMultiHost)
+			{
+				options.StartupHostName = hostText;
+			}
+			else
+			{
+				options.StartupHostName = mainForm.txtDisplayName.Text;
+				if (string.IsNullOrWhiteSpace(options.StartupHostName))
+					options.StartupHostName = hostText;
+			}
 			if (string.IsNullOrWhiteSpace(options.StartupHostName))
 				options.StartupHostName = null;
 
